@@ -47,6 +47,23 @@ The occupant renders the reference tray and captures `inputActions` into a modul
 
 A capture-phase `copy` listener scoped to the composer textarea rewrites resolvable tokens to absolute paths and sets `clipboardData['text/plain']` itself. Text without a resolvable token is left alone, so ordinary copying is unchanged. `rewriteCopy: false` disables the listener's effect entirely.
 
+## Keeping DSH's `@` menu closed
+
+`ui-reference` registers the shipped `@` trigger source and `ui-input-trigger`
+opens its candidate menu whenever a token ends **at the caret** — its
+`activeAtToken` matches `(?:^|\s)(@([^\s]*))$` against the text before the caret.
+A drop that leaves the caret right after `@path` therefore opens the menu and
+asks the user to choose.
+
+Every payload carries one trailing space for that reason: the token no longer
+ends at the caret, while the reference itself is unchanged for the tray and the
+copy rewrite. A template that already ends in whitespace keeps its own ending.
+
+The dock bridge inserts through `inputActions.captureInsertion()` +
+`insertText()` (revision-guarded, one undo step, does not disturb reference
+chips), retrying once on a stale span, and falls back to `setDraft` only when
+that path is unavailable.
+
 ## Config keys
 
 | Key | Default | Meaning |

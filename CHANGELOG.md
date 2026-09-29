@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.1.1
+
+Dragging a file no longer opens DSH's `@` candidate menu.
+
+- Every payload now carries one trailing space. `ui-input-trigger` treats an `@`
+  token ending at the caret as a live completion (`(?:^|\s)(@([^\s]*))$`), so a
+  drop used to pop the menu and ask which candidate to pick. The reference text
+  itself is unchanged.
+- The dock bridge inserts through `inputActions.captureInsertion()` +
+  `insertText()` — revision-guarded, one undo step, reference chips preserved —
+  and falls back to `setDraft` only when unavailable.
+
 ## 1.1.0
 
 Absolute paths become first-class: a reference already sitting in the draft can

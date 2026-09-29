@@ -38,7 +38,7 @@ dsh plugin --profile web add github:zhengkaixing/dsh-files-drag
 dsh plugin --profile web add git+https://gitee.com/zhengkaixing/dsh-files-drag.git
 
 # pin a release
-dsh plugin --profile web add github:zhengkaixing/dsh-files-drag#v1.1.0
+dsh plugin --profile web add github:zhengkaixing/dsh-files-drag#v1.1.1
 ```
 
 Then restart DSH and hard-refresh the page (`Ctrl+F5` / `Cmd+Shift+R`).
@@ -87,6 +87,9 @@ Once a reference sits in the draft:
 - `Alt` + drag inserts the absolute path directly;
 - `Ctrl+C` on a selection containing the reference puts the absolute path on the
   clipboard instead.
+
+Every drop ends with one trailing space, which keeps DSH's own `@` candidate menu
+closed (its trigger only fires while an `@` token ends at the caret).
 
 ## Configuration
 

@@ -33,7 +33,7 @@ dsh plugin --profile web add github:zhengkaixing/dsh-files-drag
 dsh plugin --profile web add git+https://gitee.com/zhengkaixing/dsh-files-drag.git
 
 # 钉版本
-dsh plugin --profile web add github:zhengkaixing/dsh-files-drag#v1.1.0
+dsh plugin --profile web add github:zhengkaixing/dsh-files-drag#v1.1.1
 ```
 
 装完**重启 DSH 并硬刷新页面**(`Ctrl+F5` / `Cmd+Shift+R`)。
@@ -77,6 +77,9 @@ error: profile "desktop" is managed exclusively by the Electron application
 - 输入框上方的**卡片**:点一下 = 复制它的**绝对路径**;
 - `Alt` + 拖拽 = 直接插入绝对路径;
 - `Ctrl+C` 复制包含该引用的选区 = 剪贴板里是绝对路径。
+
+每次拖拽插入都会带一个**尾随空格**,这样 DSH 自带的 `@` 候选菜单不会弹出(它的触发条件要求
+`@` token 正好结尾在光标处)。
 
 ## 配置
 

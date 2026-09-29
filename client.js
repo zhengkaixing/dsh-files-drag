@@ -17,6 +17,8 @@ window.__ModuleLoader__.load({
     const DEFAULT_FORMAT = '@{path}';
     const DEFAULT_ALT_FORMAT = '{abs}';
     const COPIED_MS = 1200;
+    /** Trailing separator: a token ending at the caret opens DSH's `@` menu. */
+    const REFERENCE_SUFFIX = ' ';
     const CSS = [
       '[data-files-path][data-dsh-files-drag] > button{cursor:grab}',
       '[data-files-path][data-dsh-files-drag] > button:active{cursor:grabbing}',
@@ -200,6 +202,10 @@ window.__ModuleLoader__.load({
         if (!actions) return undefined;
         bridge = {
           insert(text) {
+            for (let attempt = 0; attempt < 2; attempt += 1) {
+              const span = actions.captureInsertion?.();
+              if (span === undefined || actions.insertText(text, span)) return;
+            }
             const current = draftRef.current;
             const separator = current === '' || current.endsWith('\n') ? '' : '\n';
             actions.setDraft(current + separator + text);
@@ -275,9 +281,10 @@ window.__ModuleLoader__.load({
             if (absolute === '') return;
             let relative = relativePath(row);
             if (row.getAttribute('data-files-entry') === 'directory' && !relative.endsWith('/')) relative += '/';
-            const text = fillTemplate(event.altKey ? options.altFormat : options.format, relative, absolute);
+            const reference = fillTemplate(event.altKey ? options.altFormat : options.format, relative, absolute);
+            const text = /\s$/.test(reference) ? reference : reference + REFERENCE_SUFFIX;
             event.dataTransfer.setData('text/plain', text);
-            event.dataTransfer.setData(MARKER, JSON.stringify({ text, absolute, relative: relative.replace(/\/+$/, '') }));
+            event.dataTransfer.setData(MARKER, JSON.stringify({ text, reference, absolute, relative: relative.replace(/\/+$/, '') }));
             event.dataTransfer.effectAllowed = 'copy';
             document.body.dataset.dshFilesDragActive = '1';
           };
@@ -293,7 +300,7 @@ window.__ModuleLoader__.load({
             delete document.body.dataset.dshFilesDragActive;
             const payload = readPayload(event);
             if (payload === null) return;
-            byToken.set(payload.text, payload.absolute);
+            byToken.set(payload.reference, payload.absolute);
             byRel.set(payload.relative, payload.absolute);
             const target = event.target instanceof Element ? event.target : null;
             if (target !== null && target.closest(COMPOSER) !== null) return; // browser inserts at the caret
