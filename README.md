@@ -17,6 +17,11 @@ workspace-relative path is inserted as a reference.
 - Drop **on the composer** → inserted at the caret by the browser.
   Drop **anywhere else** on the page → appended to the draft.
 - Directories are draggable too (`@docs/`).
+- **Reference tray** — every resolvable reference in the draft becomes a chip
+  above the composer; one click copies its **absolute path**.
+- **`Alt` + drag** — insert the absolute path instead of `@relative`.
+- **Copy rewrite** — `Ctrl+C` inside the composer yields absolute paths for
+  resolvable references.
 - The absolute path the tree reports is trimmed to a workspace-relative one.
 - Composer gets a dashed highlight while a row is being dragged.
 - Configurable reference format (`{path}` / `{abs}`).
@@ -33,7 +38,7 @@ dsh plugin --profile web add github:zhengkaixing/dsh-files-drag
 dsh plugin --profile web add git+https://gitee.com/zhengkaixing/dsh-files-drag.git
 
 # pin a release
-dsh plugin --profile web add github:zhengkaixing/dsh-files-drag#v1.0.0
+dsh plugin --profile web add github:zhengkaixing/dsh-files-drag#v1.1.0
 ```
 
 Then restart DSH and hard-refresh the page (`Ctrl+F5` / `Cmd+Shift+R`).
@@ -76,6 +81,13 @@ By default a file row inserts `@<workspace-relative path>` and a directory row
 `@<path>/`. Pick the files up in your message as usual, e.g.
 `review @src/client/main.ts`.
 
+Once a reference sits in the draft:
+
+- the chip above the composer copies its **absolute path** on click;
+- `Alt` + drag inserts the absolute path directly;
+- `Ctrl+C` on a selection containing the reference puts the absolute path on the
+  clipboard instead.
+
 ## Configuration
 
 Override the reference template on the plugin's row in the profile's
@@ -84,13 +96,16 @@ Override the reference template on the plugin's row in the profile's
 ```yaml
 - id: files-drag
   config:
-    format: '[file: {path}]' # '@{path}' (default) | '{path}' | '{abs}' | …
+    format: '@{path}'    # drag payload (default); also '[file: {path}]', '{path}', …
+    altFormat: '{abs}'   # payload while Alt is held at dragstart
+    tray: true           # reference chips above the composer
+    rewriteCopy: true    # Ctrl+C inside the composer yields absolute paths
 ```
 
 Placeholders: `{path}` — workspace-relative path, forward slashes, trailing `/`
-for directories; `{abs}` — the absolute path the tree reported. If a DSH version
-does not pass the row config to a client-only row, change `DEFAULT_FORMAT` at the
-top of `client.js` instead.
+for directories; `{abs}` — absolute path, backslashes on Windows. If a DSH version
+does not pass the row config to a client-only row, change `DEFAULT_FORMAT` /
+`DEFAULT_ALT_FORMAT` at the top of `client.js` instead.
 
 ## How it works
 
@@ -101,6 +116,13 @@ top of `client.js` instead.
 | Drag payload | `dragstart` writes the reference into `text/plain` plus a private `application/x-dsh-files-drag` type, so drags this plugin does not own are left alone |
 | Drop on the composer | Left to the browser, which inserts the text at the caret |
 | Drop elsewhere | Inserted through the `conversation.input.dock` slot's `inputActions.setDraft` |
+| Absolute path | Resolution order: inserted token → workspace-relative path → `data-files-root` + relative path. Recorded on drop, so a cancelled drag teaches nothing |
+| Reference tray | The dock occupant renders one chip per resolvable reference; a click writes the absolute path to the clipboard |
+| `Alt` + drag | `dragstart` swaps the template to `altFormat` before publishing the payload |
+| Copy rewrite | A capture-phase `copy` listener scoped to the composer replaces resolvable tokens in the selection |
+
+Internals — DOM and slot contracts, every flow and config key — live in
+[`docs/DESIGN.md`](docs/DESIGN.md).
 
 ## Compatibility and known limits
 
@@ -110,6 +132,9 @@ top of `client.js` instead.
   simply stop being draggable — no error, nothing else affected).
 - Files and directories are draggable individually. The built-in panel has no
   multi-select, so there is no batch drag.
+- `rewriteCopy` changes what `Ctrl+C` puts on the clipboard *inside the composer*
+  only, and only when the selection names a resolvable reference; set it to
+  `false` to copy verbatim.
 - The "drop on the composer" branch matches `[data-composer-card] textarea`. If a
   DSH version changes that structure, such a drop still works — it just falls
   back to appending at the end of the draft instead of the caret.

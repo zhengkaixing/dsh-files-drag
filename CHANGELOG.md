@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.1.0
+
+Absolute paths become first-class: a reference already sitting in the draft can
+be copied out without retyping it.
+
+- **Reference tray** — every resolvable reference in the draft renders as a chip
+  above the composer (file name + parent directory, full path on hover). Clicking
+  a chip copies the **absolute path**; the chip confirms with `已复制`.
+- **Alt + drag** — holding `Alt` while starting a drag inserts the absolute path
+  instead of `@relative`, for pasting straight into a shell or file manager.
+- **Copy rewrite** — `Ctrl+C` inside the composer turns resolvable references in
+  the selection into absolute paths. Selections naming nothing resolvable are
+  copied byte-identically.
+- Resolution order: exact inserted text → workspace-relative path →
+  `data-files-root` + relative path. Cancelled drags record nothing.
+- Windows drive and UNC paths are normalized to backslashes; POSIX paths are left
+  alone.
+- New config keys: `altFormat`, `tray`, `rewriteCopy` (all optional, defaults keep
+  the behaviour above). Implementation detail moved to `docs/DESIGN.md`.
+
 ## 1.0.0
 
 Initial release.
