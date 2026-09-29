@@ -1,8 +1,8 @@
 /**
- * dsh-files-drag client half: built-in file-panel rows become draggable, the
- * dropped reference lands in the composer, and the draft's references expose
- * their absolute path (tray copy, Alt drag, copy rewrite).
- * Row/slot contracts, flows and every config key: docs/DESIGN.md.
+ * dsh-files-drag client half: built-in file-panel rows become draggable, every
+ * resolvable file name resolves to an absolute path for the clipboard, and the
+ * file tree follows the file the right sidebar opens.
+ * Row/slot/service contracts and every config key: docs/DESIGN.md.
  */
 window.__ModuleLoader__.load({
   id: 'dsh-files-drag',
@@ -12,25 +12,22 @@ window.__ModuleLoader__.load({
 
     /** Drag payload type this module owns; drags without it are left untouched. */
     const MARKER = 'application/x-dsh-files-drag';
-    /** Composer textarea; the dock slot exposes no workspace root, the DOM does. */
-    const COMPOSER = '[data-composer-card] textarea';
+    /** `dsh-resource://file/<session|absolute>/<path>`, the address every file tab carries. */
+    const FILE_ADDRESS = 'dsh-resource://file/';
     const DEFAULT_FORMAT = '@{path}';
     const DEFAULT_ALT_FORMAT = '{abs}';
-    const COPIED_MS = 1200;
     /** Trailing separator: a token ending at the caret opens DSH's `@` menu. */
     const REFERENCE_SUFFIX = ' ';
+    const COPIED_MS = 1200;
+    const REVEAL_INTERVAL_MS = 600;
+    const REVEAL_STEP_MS = 150;
+    const REVEAL_STEPS = 12;
+    const FLASH_MS = 1600;
     const CSS = [
       '[data-files-path][data-dsh-files-drag] > button{cursor:grab}',
       '[data-files-path][data-dsh-files-drag] > button:active{cursor:grabbing}',
+      '[data-files-path].dshfd-flash{background:var(--dsw-alias-interactive-bg-hover);outline:1px solid var(--dsw-alias-brand-primary,#4d6bfe);outline-offset:-1px;border-radius:4px}',
       'body[data-dsh-files-drag-active] [data-composer-card]{outline:2px dashed var(--dsw-alias-brand-primary,#4d6bfe);outline-offset:2px}',
-      '.dshfd-tray{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:2px 0 6px}',
-      '.dshfd-tray-label{font-size:11px;color:var(--dsw-alias-label-tertiary)}',
-      '.dshfd-chip{display:inline-flex;align-items:center;gap:6px;max-width:100%;height:24px;padding:0 8px;border:0;border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer}',
-      '.dshfd-chip:hover{background:var(--dsw-alias-interactive-bg-hover)}',
-      '.dshfd-chip-name{max-width:220px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--dsw-alias-label-primary)}',
-      '.dshfd-chip-dir{max-width:160px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--dsw-alias-label-tertiary)}',
-      '.dshfd-chip-action{color:var(--dsw-alias-label-tertiary)}',
-      '.dshfd-chip-copied .dshfd-chip-action{color:var(--dsw-alias-brand-primary)}',
     ].join('\n');
 
     /** Inserted reference text → absolute path; workspace-relative path → absolute path. */
@@ -39,7 +36,12 @@ window.__ModuleLoader__.load({
     /** Composer bridge captured from the input dock slot. */
     let bridge = null;
     /** Row config, defaulted in apply. */
-    const options = { format: DEFAULT_FORMAT, altFormat: DEFAULT_ALT_FORMAT, tray: true, rewriteCopy: true };
+    const options = {
+      format: DEFAULT_FORMAT,
+      altFormat: DEFAULT_ALT_FORMAT,
+      rewriteCopy: true,
+      reveal: true,
+    };
 
     /** Windows drive and UNC paths get backslashes; POSIX paths are left alone. */
     function normalizeAbsolute(path) {
@@ -48,6 +50,18 @@ window.__ModuleLoader__.load({
 
     function isAbsolutePath(path) {
       return path.startsWith('/') || path.startsWith('\\\\') || /^[A-Za-z]:[\\/]/.test(path);
+    }
+
+    /** Comparison spelling: unified separators, no trailing slash, case-folded on drives. */
+    function comparable(path) {
+      const unified = path.replace(/\\/g, '/').replace(/\/+$/, '');
+      return /^[A-Za-z]:/.test(unified) ? unified.toLowerCase() : unified;
+    }
+
+    function basename(path) {
+      const trimmed = path.replace(/[\\/]+$/, '');
+      const cut = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'));
+      return cut === -1 ? trimmed : trimmed.slice(cut + 1);
     }
 
     /** Workspace root reported by the built-in panel, when it is mounted. */
@@ -73,49 +87,69 @@ window.__ModuleLoader__.load({
       return template.replace(/\{path\}/g, relative).replace(/\{abs\}/g, absolute);
     }
 
-    /** Reference tokens a draft may carry: `@path`, `@"path with spaces"`, `[file: path]`. */
+    /** Basename → absolute path, from this session's drags plus the loaded tree rows. */
+    function nameIndex() {
+      const index = new Map();
+      const add = (absolute) => {
+        const name = basename(absolute);
+        if (name !== '' && !index.has(name)) index.set(name, normalizeAbsolute(absolute));
+      };
+      for (const absolute of byRel.values()) add(absolute);
+      for (const row of document.querySelectorAll('[data-files-path]')) {
+        const absolute = row.getAttribute('data-files-path') || '';
+        if (absolute !== '') add(absolute);
+      }
+      return index;
+    }
+
+    /**
+     * Candidates a selection may name, in text order: `@path`, `@"path"`,
+     * `[file: path]`, or a bare path-like token carrying an extension.
+     * Overlapping matches keep the earliest and longest.
+     */
     function scanReferences(text) {
       const found = [];
+      const push = (token, path, start) => {
+        if (path !== '') found.push({ token, path, start });
+      };
       let match;
-      const at = /(?<=^|[\s([{])@(?:"([^"\n]+)"|([^\s@"'`]+))/g;
-      while ((match = at.exec(text)) !== null) {
-        found.push({ token: match[0], path: match[1] ?? match[2], start: match.index });
-      }
+      const at = /(?<=^|[\s([{`"'])@(?:"([^"\n]+)"|([^\s@"'`]+))/g;
+      while ((match = at.exec(text)) !== null) push(match[0], match[1] ?? match[2], match.index);
       const tagged = /\[file:\s*([^\]\n]+?)\s*\]/g;
-      while ((match = tagged.exec(text)) !== null) {
-        found.push({ token: match[0], path: match[1], start: match.index });
+      while ((match = tagged.exec(text)) !== null) push(match[0], match[1], match.index);
+      const bare =
+        /(?<=^|[\s([{`"'(])([A-Za-z]:[\\/][^\s"'`)\]}]+|\/?(?:[\w.@+-]+[\\/])*[\w.@+-]+\.[A-Za-z0-9]{1,8})(?=$|[\s)\]}`"'.,;:!?])/g;
+      while ((match = bare.exec(text)) !== null) push(match[0], match[1], match.index);
+      found.sort((left, right) => left.start - right.start || right.token.length - left.token.length);
+      const kept = [];
+      for (const item of found) {
+        const previous = kept[kept.length - 1];
+        if (previous !== undefined && item.start < previous.start + previous.token.length) continue;
+        kept.push(item);
       }
-      return found.sort((left, right) => left.start - right.start);
+      return kept;
     }
 
     /** Absolute path behind one reference, or null when nothing can resolve it. */
     function absoluteOf(token, path) {
       const inserted = byToken.get(token);
       if (inserted !== undefined) return inserted;
-      if (isAbsolutePath(path)) return normalizeAbsolute(path);
-      const known = byRel.get(path.replace(/\/+$/, ''));
+      const raw = path.trim();
+      if (raw === '') return null;
+      if (isAbsolutePath(raw)) return normalizeAbsolute(raw);
+      const known = byRel.get(raw.replace(/\/+$/, ''));
       if (known !== undefined) return known;
-      const root = workspaceRoot();
-      return root === '' ? null : normalizeAbsolute(root + '/' + path);
-    }
-
-    /** Resolvable references in a draft, deduplicated by absolute path. */
-    function referencesIn(draft) {
-      const seen = new Set();
-      const references = [];
-      for (const found of scanReferences(draft)) {
-        const absolute = absoluteOf(found.token, found.path);
-        if (absolute === null || seen.has(absolute)) continue;
-        seen.add(absolute);
-        references.push({ token: found.token, relative: found.path, absolute });
+      if (raw.includes('/') || raw.includes('\\')) {
+        const root = workspaceRoot();
+        return root === '' ? null : normalizeAbsolute(root + '/' + raw.replace(/^[\\/]+/, ''));
       }
-      return references;
+      return nameIndex().get(raw) ?? null;
     }
 
-    /** Rewrite every resolvable reference inside copied text to its absolute path. */
+    /** Rewrite every resolvable name inside copied text to its absolute path. */
     function absolutize(text) {
-      const found = scanReferences(text);
       let rewritten = text;
+      const found = scanReferences(text);
       for (let index = found.length - 1; index >= 0; index -= 1) {
         const item = found[index];
         const absolute = absoluteOf(item.token, item.path);
@@ -123,6 +157,17 @@ window.__ModuleLoader__.load({
         rewritten = rewritten.slice(0, item.start) + absolute + rewritten.slice(item.start + item.token.length);
       }
       return rewritten;
+    }
+
+    /** The selection a copy gesture carries: textarea offsets first, editor selection otherwise. */
+    function selectedText(event) {
+      const target = event.target instanceof Element ? event.target : null;
+      const area = target === null ? null : target.closest('textarea');
+      if (area !== null && typeof area.selectionStart === 'number' && area.selectionStart !== area.selectionEnd) {
+        return area.value.slice(area.selectionStart, area.selectionEnd);
+      }
+      const selection = document.getSelection();
+      return selection === null ? '' : selection.toString();
     }
 
     /** Clipboard write with a selection fallback for non-secure contexts. */
@@ -150,54 +195,73 @@ window.__ModuleLoader__.load({
       return Promise.resolve(copied);
     }
 
-    /** One draft reference: click copies its absolute path. */
-    function ReferenceChip({ reference }) {
-      const [copied, setCopied] = React.useState(false);
-      React.useEffect(() => {
-        if (!copied) return undefined;
-        const timer = setTimeout(() => setCopied(false), COPIED_MS);
-        return () => clearTimeout(timer);
-      }, [copied]);
-      const name = reference.absolute.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || reference.absolute;
-      const cut = reference.relative.replace(/\/+$/, '').lastIndexOf('/');
-      return el(
-        'button',
-        {
-          type: 'button',
-          className: 'dshfd-chip' + (copied ? ' dshfd-chip-copied' : ''),
-          title: reference.absolute + '\n点击复制绝对路径',
-          'aria-label': '复制路径 ' + reference.absolute,
-          onClick: () => {
-            void copyText(reference.absolute).then((ok) => {
-              if (ok) setCopied(true);
-            });
-          },
-        },
-        el('span', { className: 'dshfd-chip-name' }, name),
-        cut > 0 ? el('span', { className: 'dshfd-chip-dir' }, reference.relative.slice(0, cut)) : null,
-        el('span', { className: 'dshfd-chip-action' }, copied ? '已复制' : '复制路径'),
-      );
+    /** The tree row naming one absolute path, whatever separator spelling it uses. */
+    function rowFor(absolute) {
+      const target = comparable(absolute);
+      for (const row of document.querySelectorAll('[data-files-path]')) {
+        const candidate = row.getAttribute('data-files-path') || '';
+        if (candidate !== '' && comparable(candidate) === target) return row;
+      }
+      return null;
     }
 
-    /** Draft references as chips; renders nothing while the draft names none. */
-    function ReferenceTray({ draft }) {
-      const references = React.useMemo(() => referencesIn(draft), [draft]);
-      if (references.length === 0) return null;
-      return el(
-        'div',
-        { className: 'dshfd-tray' },
-        el('span', { className: 'dshfd-tray-label' }, '文件引用'),
-        ...references.map((reference) => el(ReferenceChip, { key: reference.absolute, reference })),
-      );
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    /** Wait for one path's row, which appears only after its parent directory lists. */
+    async function waitForRow(absolute) {
+      for (let step = 0; step < REVEAL_STEPS; step += 1) {
+        const row = rowFor(absolute);
+        if (row !== null) return row;
+        await sleep(REVEAL_STEP_MS);
+      }
+      return null;
     }
 
-    /** Input dock occupant: captures draft/actions for drops, renders the tray. */
+    /** Expand a path's ancestor rows one directory at a time, then flash the row. */
+    async function revealInTree(absolute) {
+      const root = workspaceRoot();
+      if (root === '') return;
+      const target = comparable(absolute);
+      const base = comparable(root);
+      if (target !== base && !target.startsWith(`${base}/`)) return;
+      const segments = absolute
+        .slice(root.length)
+        .split(/[\\/]+/)
+        .filter((segment) => segment !== '');
+      let current = root;
+      for (let index = 0; index < segments.length; index += 1) {
+        current = `${current.replace(/[\\/]+$/, '')}/${segments[index]}`;
+        const row = await waitForRow(current);
+        if (row === null) return;
+        if (index === segments.length - 1) {
+          row.scrollIntoView({ block: 'nearest' });
+          row.classList.add('dshfd-flash');
+          setTimeout(() => row.classList.remove('dshfd-flash'), FLASH_MS);
+          return;
+        }
+        const button = row.querySelector('button');
+        if (button !== null && button.getAttribute('aria-expanded') !== 'true') button.click();
+      }
+    }
+
+    /** Absolute path named by one `dsh-resource://file/…` address, or null. */
+    function absoluteForAddress(address) {
+      if (!address.startsWith(FILE_ADDRESS)) return null;
+      const parts = address.slice(FILE_ADDRESS.length).split('/');
+      const scope = parts.shift() ?? '';
+      const path = parts.map((segment) => decodeURIComponent(segment)).join('/');
+      if (path === '') return null;
+      if (scope === 'absolute') return normalizeAbsolute(path);
+      if (scope !== 'session') return null;
+      const root = workspaceRoot();
+      return root === '' ? null : normalizeAbsolute(`${root}/${path}`);
+    }
+
+    /** Input dock occupant: captures the composer actions every insertion goes through. */
     function InputDock(props) {
-      const input = props.useInput ? props.useInput((state) => state) : undefined;
       const actions = props.inputActions;
-      const draft = input ? input.draft : '';
       const draftRef = React.useRef('');
-      draftRef.current = draft;
+      if (props.useInput !== undefined) draftRef.current = props.useInput((state) => state.draft);
       React.useEffect(() => {
         if (!actions) return undefined;
         bridge = {
@@ -215,7 +279,7 @@ window.__ModuleLoader__.load({
           bridge = null;
         };
       }, [actions]);
-      return options.tray ? el(ReferenceTray, { draft }) : null;
+      return null;
     }
 
     return {
@@ -225,8 +289,8 @@ window.__ModuleLoader__.load({
         if (slots === undefined) return;
         if (config && typeof config.format === 'string' && config.format !== '') options.format = config.format;
         if (config && typeof config.altFormat === 'string' && config.altFormat !== '') options.altFormat = config.altFormat;
-        if (config && typeof config.tray === 'boolean') options.tray = config.tray;
         if (config && typeof config.rewriteCopy === 'boolean') options.rewriteCopy = config.rewriteCopy;
+        if (config && typeof config.reveal === 'boolean') options.reveal = config.reveal;
 
         /** Mark one subtree's rows draggable, idempotently. */
         const mark = (root) => {
@@ -241,7 +305,12 @@ window.__ModuleLoader__.load({
           }
         };
 
-        /** Marker payload is JSON so a drop can also record the absolute path. */
+        const carriesMarker = (event) => {
+          const transfer = event.dataTransfer;
+          if (transfer == null) return false;
+          return Array.from(transfer.types || []).indexOf(MARKER) >= 0;
+        };
+
         const readPayload = (event) => {
           const raw = event.dataTransfer ? event.dataTransfer.getData(MARKER) : '';
           if (raw === '') return null;
@@ -250,12 +319,6 @@ window.__ModuleLoader__.load({
           } catch {
             return null;
           }
-        };
-
-        const carriesMarker = (event) => {
-          const transfer = event.dataTransfer;
-          if (transfer == null) return false;
-          return Array.from(transfer.types || []).indexOf(MARKER) >= 0;
         };
 
         ctx.effect(() => {
@@ -284,7 +347,10 @@ window.__ModuleLoader__.load({
             const reference = fillTemplate(event.altKey ? options.altFormat : options.format, relative, absolute);
             const text = /\s$/.test(reference) ? reference : reference + REFERENCE_SUFFIX;
             event.dataTransfer.setData('text/plain', text);
-            event.dataTransfer.setData(MARKER, JSON.stringify({ text, reference, absolute, relative: relative.replace(/\/+$/, '') }));
+            event.dataTransfer.setData(
+              MARKER,
+              JSON.stringify({ text, reference, absolute, relative: relative.replace(/\/+$/, '') }),
+            );
             event.dataTransfer.effectAllowed = 'copy';
             document.body.dataset.dshFilesDragActive = '1';
           };
@@ -303,7 +369,7 @@ window.__ModuleLoader__.load({
             byToken.set(payload.reference, payload.absolute);
             byRel.set(payload.relative, payload.absolute);
             const target = event.target instanceof Element ? event.target : null;
-            if (target !== null && target.closest(COMPOSER) !== null) return; // browser inserts at the caret
+            if (target !== null && target.closest('[data-composer-card]') !== null) return; // native caret insert
             event.preventDefault();
             event.stopPropagation();
             if (bridge !== null) bridge.insert(payload.text);
@@ -313,18 +379,14 @@ window.__ModuleLoader__.load({
             delete document.body.dataset.dshFilesDragActive;
           };
 
-          /** Copying inside the composer yields absolute paths for known references. */
+          /** Copying a selection resolves the file names it carries to absolute paths. */
           const onCopy = (event) => {
             if (!options.rewriteCopy) return;
-            const target = event.target instanceof Element ? event.target : null;
-            const composer = target === null ? null : target.closest(COMPOSER);
-            if (composer === null || event.clipboardData == null) return;
-            const start = composer.selectionStart;
-            const end = composer.selectionEnd;
-            if (typeof start !== 'number' || typeof end !== 'number' || start === end) return;
-            const selected = composer.value.slice(start, end);
-            const rewritten = absolutize(selected);
-            if (rewritten === selected) return;
+            const text = selectedText(event);
+            if (text === '') return;
+            const rewritten = absolutize(text);
+            if (rewritten === text) return;
+            if (event.clipboardData == null) return;
             event.preventDefault();
             event.clipboardData.setData('text/plain', rewritten);
           };
@@ -335,9 +397,29 @@ window.__ModuleLoader__.load({
           document.addEventListener('dragend', onDragEnd, true);
           document.addEventListener('copy', onCopy, true);
 
+          const sidebar = ctx.get('sidebarRight');
+          let revealTimer;
+          if (options.reveal && sidebar !== undefined && typeof sidebar.active === 'function') {
+            let lastAddress = '';
+            revealTimer = setInterval(() => {
+              let record;
+              try {
+                record = sidebar.active();
+              } catch {
+                return;
+              }
+              const address = record && typeof record.contentId === 'string' ? record.contentId : '';
+              if (address === '' || address === lastAddress) return;
+              lastAddress = address;
+              const absolute = absoluteForAddress(address);
+              if (absolute !== null) void revealInTree(absolute);
+            }, REVEAL_INTERVAL_MS);
+          }
+
           return () => {
             observer.disconnect();
             style.remove();
+            if (revealTimer !== undefined) clearInterval(revealTimer);
             document.removeEventListener('dragstart', onDragStart, true);
             document.removeEventListener('dragover', onDragOver, true);
             document.removeEventListener('drop', onDrop, true);

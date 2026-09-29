@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.2.0
+
+Copied names become absolute paths, and the file tree follows the sidebar.
+
+- **Removed the reference tray** added in 1.1.0; the composer keeps its own
+  reference chips, and nothing extra is drawn above it.
+- **Copy resolves to absolute paths** — copying a selection that names a file
+  (from the draft or from a sent message) now puts its absolute path on the
+  clipboard. The composer is a Lexical rich editor, so the listener reads the DOM
+  selection as well as textarea offsets; the textarea-only selector of 1.0/1.1
+  never matched the composer at all.
+- **Resolution order** widened to cover names copied out of messages: exact
+  inserted token → absolute spelling → workspace-relative drag memory →
+  `data-files-root` + relative path → basename index (drag memory + the rows the
+  file panel has loaded). Anything unresolvable is copied unchanged.
+- **The file tree follows the sidebar** — the active right-sidebar tab's
+  `dsh-resource://file/…` address is polled, resolved against the workspace root,
+  and revealed row by row (expand, scroll, flash).
+- New config key `reveal`; `tray` is gone. Copy resolution no longer depends on
+  `[data-composer-card] textarea`, which the shipped composer does not render.
+
 ## 1.1.1
 
 Dragging a file no longer opens DSH's `@` candidate menu.

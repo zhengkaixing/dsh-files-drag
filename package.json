@@ -1,7 +1,7 @@
 {
   "name": "dsh-files-drag",
-  "version": "1.1.1",
-  "description": "Drag files straight out of DeepSeek Harness's built-in workspace file panel into the composer, and copy their absolute paths from the draft.",
+  "version": "1.2.0",
+  "description": "Drag files from DeepSeek Harness's built-in workspace file panel into the composer, copy them as absolute paths, and let the file tree follow the sidebar.",
   "type": "module",
   "exports": {
     ".": "./index.js",
