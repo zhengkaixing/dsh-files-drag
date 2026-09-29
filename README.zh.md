@@ -15,9 +15,6 @@
 - 在**内置**面板里直接拖,而不是在插件另开的第二个面板里拖。
 - 拖到**输入框上** → 由浏览器**在光标处**插入;拖到页面**其它位置** → 追加到草稿末尾。
 - 目录同样可拖(插入 `@docs/` 这样的路径)。
-- **`Alt` + 拖拽** —— 直接插入绝对路径,而不是 `@相对路径`。
-- **复制即绝对路径** —— 复制含文件名的选区(草稿里或**已发送的消息**里),剪贴板得到的是**绝对路径**。
-- **文件树跟随右侧栏** —— 打开文件(预览标签、聊天里的文件提及、工具卡)时,「文件」面板自动展开到该文件并高亮。
 - 内置面板给的是绝对路径,插件自动裁剪为工作区相对路径。
 - 拖动时输入框出现虚线高亮。
 - 引用格式可配置(`{path}` / `{abs}`)。
@@ -33,7 +30,7 @@ dsh plugin --profile web add github:zhengkaixing/dsh-files-drag
 dsh plugin --profile web add git+https://gitee.com/zhengkaixing/dsh-files-drag.git
 
 # 钉版本
-dsh plugin --profile web add github:zhengkaixing/dsh-files-drag#v1.2.0
+dsh plugin --profile web add github:zhengkaixing/dsh-files-drag#v1.0.1
 ```
 
 装完**重启 DSH 并硬刷新页面**(`Ctrl+F5` / `Cmd+Shift+R`)。
@@ -72,12 +69,6 @@ error: profile "desktop" is managed exclusively by the Electron application
 默认:文件行插入 `@<工作区相对路径>`,目录行插入 `@<路径>/`。之后照常写你的指令,例如
 `帮我改 @src/client/main.ts`。
 
-引用进入草稿后:
-
-- `Alt` + 拖拽 = 直接插入绝对路径;
-- `Ctrl+C` 复制含文件名的选区(草稿或**已发送消息**)= 剪贴板里是绝对路径;
-- 任何地方打开文件(预览标签、聊天提及、工具卡)= 「文件」面板自动展开到它并高亮该行。
-
 每次拖拽插入都会带一个**尾随空格**,这样 DSH 自带的 `@` 候选菜单不会弹出(它的触发条件要求
 `@` token 正好结尾在光标处)。
 
@@ -88,14 +79,11 @@ error: profile "desktop" is managed exclusively by the Electron application
 ```yaml
 - id: files-drag
   config:
-    format: '@{path}'    # 拖拽载荷(默认);也可 '[file: {path}]' / '{path}' …
-    altFormat: '{abs}'   # 按住 Alt 拖拽时的载荷
-    rewriteCopy: true    # 复制文件名时解析为绝对路径
-    reveal: true         # 文件树跟随右侧栏当前文件
+    format: '[file: {path}]' # 默认 '@{path}',也可用 '{path}' / '{abs}' …
 ```
 
-占位符:`{path}` = 工作区相对路径(正斜杠,目录带结尾 `/`);`{abs}` = 绝对路径(Windows 下为正斜杠转反斜杠)。
-若某个 DSH 版本不把行配置传给纯客户端行,则改 `client.js` 顶部的 `DEFAULT_FORMAT` / `DEFAULT_ALT_FORMAT`。
+占位符:`{path}` = 工作区相对路径(正斜杠,目录带结尾 `/`);`{abs}` = 树上报的绝对路径。
+若某个 DSH 版本不把行配置传给纯客户端行,则改 `client.js` 顶部的 `DEFAULT_FORMAT`。
 
 ## 原理
 
@@ -106,12 +94,6 @@ error: profile "desktop" is managed exclusively by the Electron application
 | 拖拽载荷 | `dragstart` 写入 `text/plain` + 私有类型 `application/x-dsh-files-drag`,因此不属于本插件的拖拽一律不碰 |
 | 落在输入框 | 交给浏览器原生插入,保留光标位置 |
 | 落在别处 | 通过 `conversation.input.dock` 槽位的 `inputActions.setDraft` 追加 |
-| 绝对路径 | 解析顺序:已插入的引用文本 → 绝对路径写法 → 拖拽记忆 → `data-files-root` + 相对路径 → 文件名索引(拖拽记忆 + 面板已加载的行);只在**落点**记录,拖拽取消不留下痕迹 |
-| `Alt` + 拖拽 | `dragstart` 时把模板换成 `altFormat` 再发布载荷 |
-| 复制 | 捕获阶段的 `copy` 监听把选区里可解析的文件名替换为绝对路径(DOM 选区与 textarea 偏移都支持) |
-| 文件树定位 | 轮询右侧栏当前标签的 `dsh-resource://file/…` 地址 → 按工作区根解析 → 逐级展开文件树并闪烁高亮 |
-
-实现细节(DOM/插槽契约、完整流程、全部配置键)见 [`docs/DESIGN.md`](docs/DESIGN.md)。
 
 ## 兼容性与已知限制
 
@@ -119,9 +101,6 @@ error: profile "desktop" is managed exclusively by the Electron application
   `data-files-root` 属性。将来 DSH 若改名这两个属性,拖拽会**静默失效**(行只是变回不可拖,
   不报错、不影响其它功能)。
 - 文件与目录都是单个拖拽。内置面板没有多选,因此不支持批量拖。
-- `rewriteCopy` 只在选区含可解析文件名时才改写;设为 `false` 恢复逐字复制。
-- 复制到的**裸文件名**靠"拖拽记忆 + 文件面板已加载的行"解析;两者都没有的名字会原样复制(要覆盖它需要主机侧扫描工作区)。
-- 文件树定位依赖 `data-files-root`,并用点击目录行来驱动内置树;「文件」标签未挂载或收起时,这一次就跳过。
 - "落在输入框"分支匹配 `[data-composer-card] textarea`;若某版本改了输入框结构,该拖拽仍可用,
   只是退化为"追加到末尾"而不是按光标插入。
 - 在 DSH `0.2.0-rc.1`(Windows 桌面版)上开发验证,其它版本未逐一测试;本 bundle 没有钉 DSH
