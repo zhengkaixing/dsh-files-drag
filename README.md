@@ -27,7 +27,13 @@ workspace-relative path is inserted as a reference.
 
 ```sh
 # dsh web / other CLI-launched profiles
+dsh plugin --profile web add github:zhengkaixing/dsh-files-drag
+
+# Gitee mirror (handy from mainland China)
 dsh plugin --profile web add git+https://gitee.com/zhengkaixing/dsh-files-drag.git
+
+# pin a release
+dsh plugin --profile web add github:zhengkaixing/dsh-files-drag#v1.0.0
 ```
 
 Then restart DSH and hard-refresh the page (`Ctrl+F5` / `Cmd+Shift+R`).

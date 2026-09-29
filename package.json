@@ -41,9 +41,9 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://gitee.com/zhengkaixing/dsh-files-drag.git"
+    "url": "git+https://github.com/zhengkaixing/dsh-files-drag.git"
   },
-  "homepage": "https://gitee.com/zhengkaixing/dsh-files-drag",
+  "homepage": "https://github.com/zhengkaixing/dsh-files-drag",
   "engines": {
     "node": ">=20"
   }

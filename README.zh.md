@@ -24,7 +24,13 @@
 
 ```sh
 # dsh web 等由 CLI 启动的 profile
+dsh plugin --profile web add github:zhengkaixing/dsh-files-drag
+
+# Gitee 镜像(国内更快)
 dsh plugin --profile web add git+https://gitee.com/zhengkaixing/dsh-files-drag.git
+
+# 钉版本
+dsh plugin --profile web add github:zhengkaixing/dsh-files-drag#v1.0.0
 ```
 
 装完**重启 DSH 并硬刷新页面**(`Ctrl+F5` / `Cmd+Shift+R`)。
