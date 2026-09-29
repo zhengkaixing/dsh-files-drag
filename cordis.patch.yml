@@ -1,0 +1,6 @@
+# dsh-files-drag bundle patch: one client-only row over the web profile.
+# The row name resolves from the profile's own node_modules, where this package
+# is installed.
+- insert:
+    - id: files-drag
+      name: dsh-files-drag
